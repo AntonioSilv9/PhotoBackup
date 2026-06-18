@@ -2,9 +2,11 @@ from pathlib import Path
 from datetime import datetime
 import uuid
 import hashlib
-
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
 from app.db import init_db, SessionLocal, Photo
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+
 
 
 app = FastAPI()
@@ -15,8 +17,13 @@ init_db()
 PHOTOS_DIR = Path("/photos")
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Hash set to avoid duplicates
-known_hashes = set()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 @app.get("/")
 def root():
@@ -35,6 +42,7 @@ async def upload_photo(file: UploadFile = File(...)):
     existing = db.query(Photo).filter(Photo.hash == file_hash).first()
 
     if existing:
+        db.close()
         return {
             "status": "duplicate",
             "stored_path": existing.path,
@@ -88,6 +96,43 @@ def list_photos():
         }
         for p in photos
     ]
+
+    db.close()
+
+    return result
+
+
+@app.get("/photo/{photo_id}")
+def get_photo(photo_id: int, db: Session = Depends(get_db)):
+
+    photo = db.query(Photo).filter(Photo.id == photo_id).first()
+
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    full_path = PHOTOS_DIR / photo.path
+
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(full_path)
+
+
+@app.get("/photo/{photo_id}/info")
+def get_photo_info(photo_id: int, db: Session = Depends(get_db)):
+
+    photo = db.query(Photo).filter(Photo.id == photo_id).first()
+
+    if not photo:
+        db.close()
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    result = {
+        "id": photo.id,
+        "path": photo.path,
+        "hash": photo.hash,
+        "created_at": photo.created_at
+    }
 
     db.close()
 
