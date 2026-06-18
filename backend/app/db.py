@@ -1,9 +1,10 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
+import os
 
 
-DATABASE_URL = "sqlite:///./photos.db"
+DATABASE_URL = "sqlite:///photos.db"
 
 engine = create_engine(
     DATABASE_URL,

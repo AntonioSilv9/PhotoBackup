@@ -5,4 +5,5 @@ services:
     ports:
       - "8081:8000"
     volumes:
+      - ./backend/photos.db:/app/photos.db
       - ./photos:/photos
