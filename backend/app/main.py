@@ -6,10 +6,21 @@ from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
 from app.db import init_db, SessionLocal, Photo
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List
+from PIL import Image
 
 
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 init_db()
 
@@ -31,53 +42,66 @@ def root():
 
 
 @app.post("/upload")
-async def upload_photo(file: UploadFile = File(...)):
-
-    file_bytes = await file.read()
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
+async def upload_photos(files: List[UploadFile] = File(...)):
 
     db = SessionLocal()
+    results = []
 
-    # verificar duplicado
-    existing = db.query(Photo).filter(Photo.hash == file_hash).first()
+    for file in files:
+        file_bytes = await file.read()
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
 
-    if existing:
-        db.close()
-        return {
-            "status": "duplicate",
-            "stored_path": existing.path,
+        # verificar duplicado
+        existing = db.query(Photo).filter(Photo.hash == file_hash).first()
+
+        if existing:
+            results.append({
+                "status": "duplicate",
+                "stored_path": existing.path,
+                "sha256": file_hash
+            })
+            continue
+
+        ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+        unique_name = f"{uuid.uuid4()}.{ext}"
+
+        now = datetime.now()
+        folder = PHOTOS_DIR / str(now.year) / f"{now.month:02}" / f"{now.day:02}"
+        folder.mkdir(parents=True, exist_ok=True)
+
+        destination = folder / unique_name
+
+        with open(destination, "wb") as f:
+            f.write(file_bytes)
+            img = Image.open(destination)
+
+            img.thumbnail((300, 300))
+
+            thumb_name = f"thumb_{unique_name}"
+            thumb_path = folder / thumb_name
+
+            img.save(thumb_path)
+
+        relative_path = str(destination.relative_to(PHOTOS_DIR))
+
+        photo = Photo(
+            hash=file_hash,
+            path=relative_path,
+            thumb_path=str(thumb_path.relative_to(PHOTOS_DIR))
+        )
+
+        db.add(photo)
+
+        results.append({
+            "status": "uploaded",
+            "stored_path": relative_path,
             "sha256": file_hash
-        }
+        })
 
-    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-    unique_name = f"{uuid.uuid4()}.{ext}"
-
-    now = datetime.now()
-    folder = PHOTOS_DIR / str(now.year) / f"{now.month:02}" / f"{now.day:02}"
-    folder.mkdir(parents=True, exist_ok=True)
-
-    destination = folder / unique_name
-
-    with open(destination, "wb") as f:
-        f.write(file_bytes)
-
-    relative_path = str(destination.relative_to(PHOTOS_DIR))
-
-    # guardar na DB
-    photo = Photo(
-        hash=file_hash,
-        path=relative_path
-    )
-
-    db.add(photo)
     db.commit()
     db.close()
 
-    return {
-        "status": "uploaded",
-        "stored_path": relative_path,
-        "sha256": file_hash
-    }
+    return results
 
 
 @app.get("/photos")
@@ -124,7 +148,6 @@ def get_photo_info(photo_id: int, db: Session = Depends(get_db)):
     photo = db.query(Photo).filter(Photo.id == photo_id).first()
 
     if not photo:
-        db.close()
         raise HTTPException(status_code=404, detail="Photo not found")
 
     result = {
@@ -134,6 +157,21 @@ def get_photo_info(photo_id: int, db: Session = Depends(get_db)):
         "created_at": photo.created_at
     }
 
-    db.close()
 
     return result
+
+
+@app.get("/photo/{photo_id}/thumb")
+def get_thumbnail(photo_id: int, db: Session = Depends(get_db)):
+
+    photo = db.query(Photo).filter(Photo.id == photo_id).first()
+
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    full_path = PHOTOS_DIR / photo.thumb_path
+
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="Thumb not found")
+
+    return FileResponse(full_path)

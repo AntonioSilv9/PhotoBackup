@@ -21,7 +21,10 @@ class Photo(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     hash = Column(String, unique=True, index=True)
+
     path = Column(String)
+    thumb_path = Column(String)   
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
