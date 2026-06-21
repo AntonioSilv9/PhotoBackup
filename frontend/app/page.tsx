@@ -4,113 +4,152 @@ import { useState, useEffect } from "react";
 
 export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
-  const [result, setResult] = useState("");
   const [photos, setPhotos] = useState<any[]>([]);
-  const [selected, setSelected] = useState<any | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const API = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.42:8081";
+  const API =
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://192.168.1.42:8081";
 
   useEffect(() => {
-    loadPhotos();
+    load();
   }, []);
 
-  async function loadPhotos() {
-    const response = await fetch(`${API}/photos`);
-    const data = await response.json();
-    setPhotos(data);
+  async function load() {
+    const res = await fetch(`${API}/photos`);
+    setPhotos(await res.json());
   }
 
   async function upload() {
-    if (files.length === 0) return;
+    if (!files.length) return;
 
-    const formData = new FormData();
+    const form = new FormData();
+    files.forEach(f => form.append("files", f));
 
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
-
-    const response = await fetch(`${API}/upload`, {
+    await fetch(`${API}/upload`, {
       method: "POST",
-      body: formData,
+      body: form,
     });
 
     setFiles([]);
-
-    const data = await response.json();
-
-    setResult(JSON.stringify(data, null, 2));
-    loadPhotos();
+    load();
   }
 
+  function next() {
+    if (selectedId === null) return;
+
+    const index = photos.findIndex(p => p.id === selectedId);
+    if (index < photos.length - 1) {
+      setSelectedId(photos[index + 1].id);
+    }
+  }
+
+  function prev() {
+    if (selectedId === null) return;
+
+    const index = photos.findIndex(p => p.id === selectedId);
+    if (index > 0) {
+      setSelectedId(photos[index - 1].id);
+    }
+  }
+
+  let startX = 0;
+
   return (
-    <main style={{ padding: "2rem" }}>
-      <h1>Photo Backup</h1>
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#0a0a0a",
+        color: "white",
+        fontFamily: "system-ui",
+        padding: 20,
+      }}
+    >
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22 }}>📷 Photo Backup</h1>
+      </div>
 
-      <input
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={(e) =>
-          setFiles(Array.from(e.target.files || []))
-        }
-      />
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          marginBottom: 20,
+        }}
+      >
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) =>
+            setFiles(Array.from(e.target.files || []))
+          }
+          style={{ color: "white" }}
+        />
 
-      <br />
-      <br />
+        <button
+          onClick={upload}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 10,
+            border: "none",
+            background: "#2563eb",
+            color: "white",
+            fontWeight: 600,
+          }}
+        >
+          Upload
+        </button>
+      </div>
 
-      <button onClick={upload}>
-        Upload
-      </button>
-
-      <pre>{result}</pre>
-
-      <h2>Galeria</h2>
-
-      {/* 🔥 GRID DA GALERIA */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, 200px)",
-          gap: "10px",
-          marginTop: "20px",
+          gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+          gap: 10,
         }}
       >
-        {photos.map((photo) => (
+        {photos.map((p) => (
           <img
-            key={photo.id}
-            src={`${API}/photo/${photo.id}/thumb`}
-            onClick={() => setSelected(photo)}
+            key={p.id}
+            src={`${API}/photo/${p.id}/thumb`}
+            onClick={() => setSelectedId(p.id)}
             style={{
-              width: "200px",
-              height: "200px",
+              width: "100%",
+              aspectRatio: "1/1",
               objectFit: "cover",
+              borderRadius: 12,
               cursor: "pointer",
             }}
           />
         ))}
       </div>
 
-      {selected && (
+      {selectedId !== null && (
         <div
-          onClick={() => setSelected(null)}
+          onClick={() => setSelectedId(null)}
+          onTouchStart={(e) => (startX = e.touches[0].clientX)}
+          onTouchEnd={(e) => {
+            const diff = startX - e.changedTouches[0].clientX;
+
+            if (diff > 50) next();
+            if (diff < -50) prev();
+          }}
           style={{
             position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
+            inset: 0,
             background: "black",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
-            zIndex: 9999,
           }}
         >
           <img
-            src={`${API}/photo/${selected.id}`}
+            src={`${API}/photo/${selectedId}`}
             style={{
               maxWidth: "95%",
               maxHeight: "95%",
+              objectFit: "contain",
             }}
           />
         </div>
